@@ -16,21 +16,27 @@ def terminate_program(signal_number, frame):
     sys.exit(1)
 
 def main():
+    use_sim = True
+    IP ='10.15.2.126' # hwardware IP
+
     signal.signal(signal.SIGINT, terminate_program)
 
-    # rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
-    rob = robobo.SimulationRobobo().connect(address='127.0.0.1', port=19997)
+    if use_sim:
+        rob = robobo.SimulationRobobo().connect(address='127.0.0.1', port=19997)
+        rob.play_simulation()
+    else:
+        # rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
+        rob = robobo.HardwareRobobo().connect(address=IP)
 
-    rob.play_simulation()
 
     # Following code moves the robot
     for i in range(10):
-            print("robobo is at {}".format(rob.position()))
-            rob.move(5, 5, 2000)
-            print("ROB Irs: {}".format(np.log(np.array(rob.read_irs()))/10))
-            #print("Base sensor detection: ", rob.base_detects_food())
+        #print("robobo is at {}".format(rob.position()))
+        rob.move(5, 5, 2000)
+        print("ROB Irs: {}".format(np.log(np.array(rob.read_irs()))/10))
+        #print("Base sensor detection: ", rob.base_detects_food())
    
-    print("robobo is at {}".format(rob.position()))
+    #print("robobo is at {}".format(rob.position()))
     rob.sleep(1)
 
     # Following code moves the phone stand
@@ -58,11 +64,12 @@ def main():
         print("ROB Irs: {}".format(np.log(np.array(rob.read_irs()))/10))
         time.sleep(0.1)
 
-    # pause the simulation and read the collected food
-    rob.pause_simulation()
-    
-    # Stopping the simualtion resets the environment
-    rob.stop_world()
+    if use_sim:
+        # pause the simulation and read the collected food
+        rob.pause_simulation()
+        
+        # Stopping the simualtion resets the environment
+        rob.stop_world()
 
 
 if __name__ == "__main__":
