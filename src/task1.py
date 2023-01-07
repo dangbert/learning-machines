@@ -10,6 +10,7 @@ import pandas as pd
 import pdb
 import prey
 import robobo
+from robobo import SimulationRobobo, HardwareRobobo
 from robobo.base import Robobo
 import sys
 import signal
@@ -26,46 +27,59 @@ class Action(Enum):
 class Player:
     IP: str
     use_sim: bool
-    rob: Robobo
+    rob: Union[SimulationRobobo, HardwareRobobo]
 
     def __init__(self, IP="127.0.0.1", use_sim: bool = True):
         self.IP = IP
         self.use_sim = use_sim
         # TODO: add headless arg for sim?
+        # TODO: use "speed up simulation" option
+        print("connecting...")
         if use_sim:
-            self.rob = robobo.SimulationRobobo().connect(
-                address="127.0.0.1", port=19997
-            )
+            tmp = SimulationRobobo().connect(address="127.0.0.1", port=19997)
+            if not tmp:
+                raise ConnectionError(f"failed to connect to simulation")
+            self.rob = tmp
         else:
             # self.rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
-            self.rob = robobo.HardwareRobobo().connect(address=IP)
+            self.rob = HardwareRobobo().connect(address=IP)
+
+        print("\nreseting camera position...")
+        # reset camera position
+        self.rob.set_phone_tilt(40, 100)
 
     def play(self):
-        if self.use_sim:
+        print("playing!")
+        # if type(self.rob) == SimulationRobobo:
+        if isinstance(self.rob, SimulationRobobo):
             self.rob.play_simulation()
 
-        self.apply_action(Action.FORWARD)
+        # self.apply_action(Action.FORWARD)
         pdb.set_trace()
         s = self.get_state()
 
         # when done
-        if self.use_sim:
+        if isinstance(self.rob, SimulationRobobo):
             # pause the simulation and read the collected food
             self.rob.pause_simulation()
 
             # Stopping the simualtion resets the environment
             self.rob.stop_world()
 
-    def get_state(self, with_img=True):
+    def get_state(self, with_img=True, save=False):
         raw_irs = self.rob.read_irs()
         irs = np.log(np.array(raw_irs)) / 10
 
         img = None
         if with_img:
             img = self.rob.get_image_front()
+            if save:
+                cv2.imwrite("test_pictures.png", img)
         return {"irs": irs, "img": img}
 
-    def apply_action(self, a: Union[Action, str], dur: float = 2000, power: float = 25):
+    def apply_action(
+        self, a: Union[Action, str], millis: int = 2000, power: float = 25
+    ):
         """
         params:
             dur: duration (ms) of action
@@ -73,13 +87,15 @@ class Player:
         """
         a = Action(a)
         if a == Action.FORWARD:
-            self.rob.move(power, power, dur)
+            self.rob.move(power, power, millis=millis)
         elif a == Action.BACKWARD:
-            self.rob.move(-power, -power, dur)
+            self.rob.move(-power, -power, millis=millis)
         elif a == Action.ROTATE_L:
-            self.rob.move(-power, power, dur)
+            power = power / 2
+            self.rob.move(-power, power, millis=millis)
         elif a == Action.ROTATE_R:
-            self.rob.move(power, -power, dur)
+            power = power / 2
+            self.rob.move(power, -power, millis=millis)
         else:
             raise NotImplementedError(f"unhandled action {a}")
 
@@ -101,13 +117,6 @@ def main():
     player = Player(use_sim=use_sim, IP=IP)
     player.play()
     exit(0)
-
-    if use_sim:
-        rob = robobo.SimulationRobobo().connect(address="127.0.0.1", port=19997)
-        rob.play_simulation()
-    else:
-        # rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
-        rob = robobo.HardwareRobobo().connect(address=IP)
 
     # TODO'S:
     # detect collisions (later assign negative reward, reset simulation?)
@@ -137,10 +146,19 @@ def main():
 
     # train a simple DQN using IR states and sampled
 
+    """
+    if use_sim:
+        rob = robobo.SimulationRobobo().connect(address="127.0.0.1", port=19997)
+        rob.play_simulation()
+    else:
+        # rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
+        rob = robobo.HardwareRobobo().connect(address=IP)
+
+
     # Following code moves the robot
     for i in range(50):
         # print("robobo is at {}".format(rob.position()))
-        rob.move(5, 5, 2000)
+        rob.move(5, 5, millis=2000)
         irs = np.log(np.array(rob.read_irs())) / 10
         print("ROB Irs: {}".format(irs))
         # print("Base sensor detection: ", rob.base_detects_food())
@@ -160,6 +178,7 @@ def main():
 
         # Stopping the simualtion resets the environment
         rob.stop_world()
+    """
 
 
 if __name__ == "__main__":
