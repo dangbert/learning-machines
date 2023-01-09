@@ -14,14 +14,16 @@ from robobo import SimulationRobobo, HardwareRobobo
 from robobo.base import Robobo
 import sys
 import signal
-from typing import Union
+from typing import Union, Optional, List
+import random
 
 
 class Action(Enum):
-    FORWARD = "f"
-    BACKWARD = "b"
-    ROTATE_L = "rot_L"
-    ROTATE_R = "rot_R"
+    FORWARD = 0
+    BACKWARD = 1
+    ROTATE_L = 2
+    ROTATE_R = 3
+    # TODO: define more granular rotation...
 
 
 class Player:
@@ -48,15 +50,31 @@ class Player:
         # reset camera position
         self.rob.set_phone_tilt(40, 100)
 
-    def play(self):
-        print("playing!")
+    def run_episode(
+        self,
+        epsilon: float,
+        max_steps: int = 200,
+    ) -> List:
+
+        print("running episode!")
         # if type(self.rob) == SimulationRobobo:
         if isinstance(self.rob, SimulationRobobo):
             self.rob.play_simulation()
 
         # self.apply_action(Action.FORWARD)
-        pdb.set_trace()
         s = self.get_state()
+
+        history = []
+        for i in range(max_steps):
+            if random.random() < epsilon:
+                a = random.choice(list(Action))
+            else:
+                raise NotImplementedError()
+                # a = Action(torch.argmax(qvals).item())
+
+            if i % 10 == 0:
+                print(f"step {i+1}/{max_steps} ({(100* i/max_steps):.2f}%) a={a}")
+            self.apply_action(a)
 
         # when done
         if isinstance(self.rob, SimulationRobobo):
@@ -65,6 +83,7 @@ class Player:
 
             # Stopping the simualtion resets the environment
             self.rob.stop_world()
+        return history
 
     def get_state(self, with_img=True, save=False):
         raw_irs = self.rob.read_irs()
@@ -108,6 +127,10 @@ def terminate_program(signal_number, frame):
 def main():
 
     # TODO: add headless arg for sim?
+    # https://www.coppeliarobotics.com/helpFiles/en/commandLine.htm
+    #   ./vrep -h ../assets/arena_obstacles.ttt
+    # see also how to start vrep from python
+    #   https://github.com/nikhil3456/VrepLibrary
 
     use_sim = True
     IP = "10.15.2.126"  # hardware IP
@@ -115,7 +138,7 @@ def main():
     signal.signal(signal.SIGINT, terminate_program)
 
     player = Player(use_sim=use_sim, IP=IP)
-    player.play()
+    player.run_episode(epsilon=1.0)
     exit(0)
 
     # TODO'S:
