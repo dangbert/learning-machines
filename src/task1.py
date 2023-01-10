@@ -38,7 +38,11 @@ class Player:
         # TODO: use "speed up simulation" option
         print("connecting...")
         if use_sim:
-            tmp = SimulationRobobo().connect(address="127.0.0.1", port=19997)
+            number = ""  # "2"
+            # number = "#0"
+            tmp = SimulationRobobo(number=number).connect(
+                address="127.0.0.1", port=19997
+            )
             if not tmp:
                 raise ConnectionError(f"failed to connect to simulation")
             self.rob = tmp
@@ -46,25 +50,28 @@ class Player:
             # self.rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
             self.rob = HardwareRobobo().connect(address=IP)
 
-        print("\nreseting camera position...")
-        # reset camera position
-        self.rob.set_phone_tilt(40, 100)
-
     def run_episode(
         self,
         epsilon: float,
         max_steps: int = 200,
     ) -> List:
-
         print("running episode!")
-        # if type(self.rob) == SimulationRobobo:
         if isinstance(self.rob, SimulationRobobo):
-            self.rob.play_simulation()
+            # ensure sim is running and reset
+            self.toggle_sim(True, hard=True)
 
         # self.apply_action(Action.FORWARD)
-        s = self.get_state()
+        print("\nresetting camera position...")
+        # reset camera position
+        # for angle in range(0, 90, 5):
+        # for angle in range(40, 50, 1):
+        # for angle in np.arange(40, 50, 0.5):
+        #    self.rob.set_phone_tilt(angle, 100)
+        #    self.wait_robot(3000)
+        #    s = self.get_state(save=True, fname=f"camera_angles/angle_{angle}.png")
 
         history = []
+        s = self.get_state(save=True)
         for i in range(max_steps):
             if random.random() < epsilon:
                 a = random.choice(list(Action))
@@ -72,20 +79,23 @@ class Player:
                 raise NotImplementedError()
                 # a = Action(torch.argmax(qvals).item())
 
-            if i % 10 == 0:
-                print(f"step {i+1}/{max_steps} ({(100* i/max_steps):.2f}%) a={a}")
+            print(f"step {i+1}/{max_steps} ({(100* i/max_steps):.2f}%) a={a}")
+            print(s["irs"])
+            pdb.set_trace()
+
+            # if i % 10 == 0:
             self.apply_action(a)
+
+            # get next state
+            s = self.get_state(save=True)
+            # np.isinf(s['irs'][2])
 
         # when done
         if isinstance(self.rob, SimulationRobobo):
-            # pause the simulation and read the collected food
-            self.rob.pause_simulation()
-
-            # Stopping the simualtion resets the environment
-            self.rob.stop_world()
+            self.toggle_sim(False)
         return history
 
-    def get_state(self, with_img=True, save=False):
+    def get_state(self, with_img=True, save=False, fname: str = "test_pictures.png"):
         raw_irs = self.rob.read_irs()
         irs = np.log(np.array(raw_irs)) / 10
 
@@ -93,17 +103,26 @@ class Player:
         if with_img:
             img = self.rob.get_image_front()
             if save:
-                cv2.imwrite("test_pictures.png", img)
-        return {"irs": irs, "img": img}
+                cv2.imwrite(fname, img)
+        state = {"irs": irs, "img": img}
+        # if isinstance(self.rob, SimulationRobobo):
+        #    state["pos"] = self.rob.base_position()
+        return state
 
     def apply_action(
-        self, a: Union[Action, str], millis: int = 2000, power: float = 25
+        self,
+        a: Union[Action, str],
+        millis: int = 2000,
+        power: float = 25,
+        wait: bool = True,
     ):
         """
         params:
             dur: duration (ms) of action
             power: float in range [0, 100]
+            wait: whether to wait for action to finish before returning
         """
+        print(f"applying action: {a}")
         a = Action(a)
         if a == Action.FORWARD:
             self.rob.move(power, power, millis=millis)
@@ -117,6 +136,58 @@ class Player:
             self.rob.move(power, -power, millis=millis)
         else:
             raise NotImplementedError(f"unhandled action {a}")
+        if wait:
+            self.wait_robot(millis)
+
+    def wait_robot(self, millis: float):
+        """Wait for desired milliseconds (in real time for HardwareRoboo, or sim time otherwise)"""
+        if isinstance(self.rob, HardwareRobobo):
+            return time.sleep(millis / 1000)
+
+        start_time = self.rob.get_sim_time()
+        if start_time == 0:
+            raise UserWarning(f"unable to wait for robot: robot is stopped")
+        while True:
+            time.sleep(0.005)
+            if self.rob.get_sim_time() - start_time >= millis:
+                # print(f"waited {self.rob.get_sim_time() - start_time}")
+                return
+
+    def toggle_sim(self, on: bool, hard: bool = False):
+        """
+        Toggle sim on or off (if needed based on current sim state).
+        If stopping the sim, we wait to return until the sim is known to have finished stopping.
+
+        params:
+            on: whether sim should be running
+            hard: hard reset sim (i.e. ensuring world is reset before playing)
+        """
+        if isinstance(self.rob, HardwareRobobo):
+            raise UserWarning("can't toggle sim from HardwareRobobo")
+
+        if hard:
+            self.toggle_sim(on)
+            self.toggle_sim(not on)
+            self.toggle_sim(on)
+
+        running = self.rob.is_simulation_running() == 1
+        sim_state = (
+            self.rob.check_simulation_state()
+        )  # seems to return 3 for paused, 0 for stopped/off, 1 for on
+        print(f"ensuring state on={on} (current state = {sim_state})")
+        if on:
+            if not running:
+                print(f"starting sim...")
+                self.rob.play_simulation()
+            return
+
+        if running:
+            print(f"stopping sim...")
+            # pause the simulation and read the collected food
+            # self.rob.pause_simulation()
+            self.rob.stop_world()
+            while self.rob.is_simulation_running() != 0:
+                time.sleep(0.05)
 
 
 def terminate_program(signal_number, frame):
