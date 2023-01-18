@@ -36,16 +36,22 @@ class Player:
         self.use_sim = use_sim
         # TODO: add headless arg for sim?
         # TODO: use "speed up simulation" option
+        realtime = False
         print("connecting...")
         if use_sim:
             number = ""  # "2"
             # number = "#0"
             tmp = SimulationRobobo(number=number).connect(
-                address="127.0.0.1", port=19997
+                address="127.0.0.1", port=19997, realtime=realtime
             )
             if not tmp:
                 raise ConnectionError(f"failed to connect to simulation")
             self.rob = tmp
+
+            # from karine: True means enable real time mode
+            # vrep.simxSetBooleanParameter(self._clientID, 25, False, vrep.simx_opmode_oneshot)
+            self.report_sim_speed()
+            exit(0)
         else:
             # self.rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
             self.rob = HardwareRobobo().connect(address=IP)
@@ -106,7 +112,7 @@ class Player:
                 cv2.imwrite(fname, img)
         state = {"irs": irs, "img": img}
         # if isinstance(self.rob, SimulationRobobo):
-        #    state["pos"] = self.rob.base_position()
+        #     state["pos"] = self.rob.base_position()
         return state
 
     def apply_action(
@@ -188,6 +194,27 @@ class Player:
             self.rob.stop_world()
             while self.rob.is_simulation_running() != 0:
                 time.sleep(0.05)
+
+    def report_sim_speed(self):
+        """Measures and reports how fast the sim is relative to real time."""
+        if isinstance(self.rob, HardwareRobobo):
+            return
+
+        print(f"measuring sim speed...")
+        was_running = self.rob.is_simulation_running() == 1
+        if not was_running:
+            self.toggle_sim(True)
+
+        start_time = self.rob.get_sim_time()
+        dur = 1500
+        time.sleep(dur / 1000)
+        end_time = self.rob.get_sim_time()
+
+        ratio = (end_time - start_time) / dur
+        print(f"real time ratio = {ratio:.3f}")
+        if not was_running:
+            self.toggle_sim(False)
+        return ratio
 
 
 def terminate_program(signal_number, frame):

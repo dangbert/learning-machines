@@ -1,3 +1,4 @@
 .dockerignore
 **/.venv
 **/__pycache__
+*.tar
