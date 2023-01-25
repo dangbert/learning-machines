@@ -7,6 +7,7 @@ import time
 import numpy as np
 import pandas as pd
 
+import math
 import pdb
 import prey
 import robobo
@@ -14,7 +15,7 @@ from robobo import SimulationRobobo, HardwareRobobo
 from robobo.base import Robobo
 import sys
 import signal
-from typing import Union, Optional, List
+from typing import Union, Optional, List, Tuple, Dict
 import random
 
 
@@ -50,7 +51,8 @@ class Player:
 
             # from karine: True means enable real time mode
             # vrep.simxSetBooleanParameter(self._clientID, 25, False, vrep.simx_opmode_oneshot)
-            self.report_sim_speed()
+            # self.report_sim_speed()
+            self.run_episode(epsilon=1.0, max_steps=5)
             exit(0)
         else:
             # self.rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
@@ -58,9 +60,9 @@ class Player:
 
     def run_episode(
         self,
-        epsilon: float,
+        epsilon: float = 0.05,
         max_steps: int = 200,
-    ) -> List:
+    ) -> Tuple[List, Dict]:
         print("running episode!")
         if isinstance(self.rob, SimulationRobobo):
             # ensure sim is running and reset
@@ -68,14 +70,9 @@ class Player:
 
         # self.apply_action(Action.FORWARD)
         print("\nresetting camera position...")
-        # reset camera position
-        # for angle in range(0, 90, 5):
-        # for angle in range(40, 50, 1):
-        # for angle in np.arange(40, 50, 0.5):
-        #    self.rob.set_phone_tilt(angle, 100)
-        #    self.wait_robot(3000)
-        #    s = self.get_state(save=True, fname=f"camera_angles/angle_{angle}.png")
+        self.rob.set_phone_tilt(0 * math.pi, 100)
 
+        food_count = 0
         history = []
         s = self.get_state(save=True)
         for i in range(max_steps):
@@ -87,10 +84,11 @@ class Player:
 
             print(f"step {i+1}/{max_steps} ({(100* i/max_steps):.2f}%) a={a}")
             print(s["irs"])
-            pdb.set_trace()
 
             # if i % 10 == 0:
             self.apply_action(a)
+            if isinstance(self.rob, SimulationRobobo):
+                food_count = self.rob.collected_food()
 
             # get next state
             s = self.get_state(save=True)
@@ -98,8 +96,10 @@ class Player:
 
         # when done
         if isinstance(self.rob, SimulationRobobo):
+            # food_count = self.rob.collected_food()
             self.toggle_sim(False)
-        return history
+
+        return history, {"food_count": food_count}
 
     def get_state(self, with_img=True, save=False, fname: str = "test_pictures.png"):
         raw_irs = self.rob.read_irs()
@@ -111,8 +111,8 @@ class Player:
             if save:
                 cv2.imwrite(fname, img)
         state = {"irs": irs, "img": img}
-        # if isinstance(self.rob, SimulationRobobo):
-        #     state["pos"] = self.rob.base_position()
+        if isinstance(self.rob, SimulationRobobo):
+            state["pos"] = self.rob.position()
         return state
 
     def apply_action(
@@ -215,6 +215,23 @@ class Player:
         if not was_running:
             self.toggle_sim(False)
         return ratio
+
+    def test_camera(self):
+        """Experiment with visualizing effect of different camera angles."""
+        print(f"testing camera:")
+        if isinstance(self.rob, SimulationRobobo):
+            self.toggle_sim(True, hard=True)
+        self.apply_action(Action.ROTATE_L)
+        self.apply_action(Action.FORWARD)
+        self.rob.set_phone_tilt(2 * math.pi, 100)
+        self.wait_robot(3000)
+
+        # for k in np.arange(-2.0, 2.0, 1.0 / 30):
+        for k in np.arange(0, 1.0, 1.0 / 30):
+            print(f"k ={k:.2f}")
+            self.rob.set_phone_tilt(math.pi * k, 100)
+            self.wait_robot(100)
+            s = self.get_state(save=True, fname=f"camera_angles/angle_{k:.2f}_pi.png")
 
 
 def terminate_program(signal_number, frame):
