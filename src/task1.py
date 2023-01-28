@@ -28,6 +28,10 @@ class Action(Enum):
 
 
 class Player:
+    """
+    TODO: consider making this an abstract base class for all tasks.
+    """
+
     IP: str
     use_sim: bool
     rob: Union[SimulationRobobo, HardwareRobobo]
@@ -36,7 +40,6 @@ class Player:
         self.IP = IP
         self.use_sim = use_sim
         # TODO: add headless arg for sim?
-        # TODO: use "speed up simulation" option
         realtime = False
         print("connecting...")
         if use_sim:
@@ -48,12 +51,6 @@ class Player:
             if not tmp:
                 raise ConnectionError(f"failed to connect to simulation")
             self.rob = tmp
-
-            # from karine: True means enable real time mode
-            # vrep.simxSetBooleanParameter(self._clientID, 25, False, vrep.simx_opmode_oneshot)
-            # self.report_sim_speed()
-            self.run_episode(epsilon=1.0, max_steps=5)
-            exit(0)
         else:
             # self.rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
             self.rob = HardwareRobobo().connect(address=IP)
@@ -72,9 +69,11 @@ class Player:
         print("\nresetting camera position...")
         self.rob.set_phone_tilt(0 * math.pi, 100)
 
-        food_count = 0
+        info = {"food_count": 0}
         history = []
         s = self.get_state(save=True)
+        self.apply_action(Action.FORWARD, millis=18000)
+        self.apply_action(Action.BACKWARD, millis=8000)
         for i in range(max_steps):
             if random.random() < epsilon:
                 a = random.choice(list(Action))
@@ -82,28 +81,45 @@ class Player:
                 raise NotImplementedError()
                 # a = Action(torch.argmax(qvals).item())
 
+            a = Action.BACKWARD
+
             print(f"step {i+1}/{max_steps} ({(100* i/max_steps):.2f}%) a={a}")
             print(s["irs"])
+            pdb.set_trace()
 
-            # if i % 10 == 0:
             self.apply_action(a)
             if isinstance(self.rob, SimulationRobobo):
-                food_count = self.rob.collected_food()
+                info["food_count"] = self.rob.collected_food()
 
             # get next state
-            s = self.get_state(save=True)
+            next_s = self.get_state(save=True)
+
+            r = 0
+            # TODO: compute reward
+            done = i == max_steps - 1
+            history.append(
+                {
+                    "s": s,
+                    "a": a.value,
+                    "r": r,
+                    "next_s": next_s,
+                    "terminal": done,
+                }
+            )
+
             # np.isinf(s['irs'][2])
+            s = next_s
 
         # when done
         if isinstance(self.rob, SimulationRobobo):
             # food_count = self.rob.collected_food()
             self.toggle_sim(False)
 
-        return history, {"food_count": food_count}
+        return history, info
 
     def get_state(self, with_img=True, save=False, fname: str = "test_pictures.png"):
         raw_irs = self.rob.read_irs()
-        irs = np.log(np.array(raw_irs)) / 10
+        irs = self._process_irs(raw_irs)
 
         img = None
         if with_img:
@@ -114,6 +130,11 @@ class Player:
         if isinstance(self.rob, SimulationRobobo):
             state["pos"] = self.rob.position()
         return state
+
+    @staticmethod
+    def _process_irs(raw_irs):
+        # return np.log(np.array(raw_irs)) / 10
+        return [np.log(x) / 10 if x != False else 999 for x in np.array(raw_irs)]
 
     def apply_action(
         self,
@@ -169,7 +190,7 @@ class Player:
             hard: hard reset sim (i.e. ensuring world is reset before playing)
         """
         if isinstance(self.rob, HardwareRobobo):
-            raise UserWarning("can't toggle sim from HardwareRobobo")
+            raise UserWarning("can't toggle sim for HardwareRobobo")
 
         if hard:
             self.toggle_sim(on)
@@ -233,6 +254,32 @@ class Player:
             self.wait_robot(100)
             s = self.get_state(save=True, fname=f"camera_angles/angle_{k:.2f}_pi.png")
 
+    def test_task3(self):
+        """Tests ability of reading position of red puck and green target (base) for task3."""
+        print("testing task3")
+        assert isinstance(self.rob, SimulationRobobo)
+
+        self.toggle_sim(True, hard=True)
+        while True:
+            cur_pos = self.rob.puck_position()
+            base_pos = self.rob.base_position()
+            detected = self.rob.base_detects_food()
+            assert cur_pos is not None and base_pos is not None
+            print(f"cur_pos = {cur_pos}")
+            print(f"base_pos = {base_pos}")
+            print(f"detected = {detected}")
+            dist = math.sqrt(
+                (cur_pos[0] - base_pos[0]) ** 2 + (cur_pos[1] - base_pos[1]) ** 2
+            )
+            print(f"dist = {dist:.3f}")
+
+            # a = Action.FORWARD
+            pdb.set_trace()
+            # self.apply_action(a)
+            if detected:
+                break
+        print("hi")
+
 
 def terminate_program(signal_number, frame):
     print("Ctrl-C received, terminating program")
@@ -252,71 +299,11 @@ def main():
 
     signal.signal(signal.SIGINT, terminate_program)
 
-    player = Player(use_sim=use_sim, IP=IP)
-    player.run_episode(epsilon=1.0)
-    exit(0)
-
-    # TODO'S:
-    # detect collisions (later assign negative reward, reset simulation?)
-
-    # save history of states to disk
-    # v0: use clustering to save a discrete set of states
-
-    # example state:
-    # ex_state = { irs: [       -inf        -inf        -inf -0.37789082 -0.46607302 -0.63648463 -0.46184335 -0.37318743] }
-
-    # example actions:
-
-    # create initial Q-table, run d
-
-    # train a simple DQN using just IR data (sipmle network)
-
-    # reward: -100 for hitting blocks, -1 per time step?
-    #   + reward based on max distanced traveled from furthese point in last 30 sec of history?
-    #   or + reward based on speed (if not hitting object)
-
-    # questions:
-    #  can you read global position in sim?  (we could reward "exploration" of env grid)
-    #  how to detect collsions?
-
-    # part 2:
-    # save (downsampled) samera images, run green mask over them, filter out small blobs
-
-    # train a simple DQN using IR states and sampled
-
-    """
-    if use_sim:
-        rob = robobo.SimulationRobobo().connect(address="127.0.0.1", port=19997)
-        rob.play_simulation()
-    else:
-        # rob = robobo.HardwareRobobo(camera=True).connect(address="192.168.1.7")
-        rob = robobo.HardwareRobobo().connect(address=IP)
-
-
-    # Following code moves the robot
-    for i in range(50):
-        # print("robobo is at {}".format(rob.position()))
-        rob.move(5, 5, millis=2000)
-        irs = np.log(np.array(rob.read_irs())) / 10
-        print("ROB Irs: {}".format(irs))
-        # print("Base sensor detection: ", rob.base_detects_food())
-
-    # print("robobo is at {}".format(rob.position()))
-    # Following code gets an image from the camera
-
-    image = rob.get_image_front()
-    # IMPORTANT! `image` returned by the simulator is BGR, not RGB
-    cv2.imwrite("test_pictures.png", image)
-
-    time.sleep(0.1)
-
-    if use_sim:
-        # pause the simulation and read the collected food
-        rob.pause_simulation()
-
-        # Stopping the simualtion resets the environment
-        rob.stop_world()
-    """
+    agent = Player(use_sim=use_sim, IP=IP)
+    # agent.report_sim_speed()
+    # res = agent.run_episode(epsilon=1.0, max_steps=10)
+    # agent.test_task3()
+    pdb.set_trace()
 
 
 if __name__ == "__main__":
