@@ -56,3 +56,4 @@ CATKIN_IGNORE
 #/.vscode/
 
 src/camera_angles*
+src/test_pictures.png

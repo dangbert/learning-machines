@@ -260,6 +260,13 @@ class Player:
         assert isinstance(self.rob, SimulationRobobo)
 
         self.toggle_sim(True, hard=True)
+        print("moving...")
+        # approach goal:
+        self.rob.set_phone_tilt(0.2 * math.pi, 100)
+        self.apply_action(Action.FORWARD, millis=2000)
+        self.apply_action(Action.ROTATE_R, millis=2800)
+        self.apply_action(Action.FORWARD, millis=5000)
+        print("done!...")
         while True:
             cur_pos = self.rob.puck_position()
             base_pos = self.rob.base_position()
@@ -274,6 +281,7 @@ class Player:
             print(f"dist = {dist:.3f}")
 
             # a = Action.FORWARD
+            self.get_state(save=True)
             pdb.set_trace()
             # self.apply_action(a)
             if detected:
@@ -302,7 +310,7 @@ def main():
     agent = Player(use_sim=use_sim, IP=IP)
     # agent.report_sim_speed()
     # res = agent.run_episode(epsilon=1.0, max_steps=10)
-    # agent.test_task3()
+    agent.test_task3()
     pdb.set_trace()
 
 
